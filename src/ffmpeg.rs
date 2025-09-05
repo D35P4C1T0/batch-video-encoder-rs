@@ -181,7 +181,7 @@ impl FFmpegEncoder {
         None
     }
     
-    /// Encode video with progress callback
+    /// Encode video with progress callback and comprehensive error handling
     pub async fn encode_video<F>(
         &self,
         input: &Path,
@@ -191,33 +191,137 @@ impl FFmpegEncoder {
     where
         F: Fn(ProgressUpdate) + Send + Sync + 'static,
     {
+        self.encode_video_with_recovery(input, output, progress_callback, true).await
+    }
+    
+    /// Encode video with optional hardware acceleration fallback
+    pub async fn encode_video_with_recovery<F>(
+        &self,
+        input: &Path,
+        output: &Path,
+        progress_callback: F,
+        allow_fallback: bool,
+    ) -> Result<()>
+    where
+        F: Fn(ProgressUpdate) + Send + Sync + 'static,
+    {
+        // Validate input file exists and is readable
+        if !input.exists() {
+            return Err(AppError::file_error(
+                input.to_path_buf(),
+                "Input file does not exist"
+            ));
+        }
+        
+        if !input.is_file() {
+            return Err(AppError::file_error(
+                input.to_path_buf(),
+                "Input path is not a file"
+            ));
+        }
+        
         // Get video duration for progress calculation
-        let total_duration = self.get_video_duration(input).await?;
-        
-        // Check for AMD hardware support
-        let use_hardware = self.config.use_hardware_acceleration && self.check_amd_hardware_support().await;
-        
-        let args = if use_hardware {
-            println!("Using AMD AMF hardware acceleration");
-            self.generate_amd_command_args(input, output)
-        } else {
-            if self.config.use_hardware_acceleration {
-                println!("AMD hardware acceleration not available, falling back to software encoding");
+        let total_duration = match self.get_video_duration(input).await {
+            Ok(duration) => duration,
+            Err(e) => {
+                return Err(AppError::file_error(
+                    input.to_path_buf(),
+                    format!("Failed to get video duration: {}", e)
+                ));
             }
-            self.generate_software_command_args(input, output)
         };
         
+        // Check for AMD hardware support
+        let hardware_available = self.check_amd_hardware_support().await;
+        let _use_hardware = self.config.use_hardware_acceleration && hardware_available;
+        
+        // First attempt: try hardware acceleration if requested and available
+        if self.config.use_hardware_acceleration && hardware_available {
+            match self.encode_with_hardware(input, output, &progress_callback, total_duration).await {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    if allow_fallback {
+                        eprintln!("Hardware encoding failed: {}. Falling back to software encoding.", e);
+                        // Continue to software fallback
+                    } else {
+                        return Err(AppError::hardware_error(format!(
+                            "Hardware encoding failed and fallback disabled: {}", e
+                        )));
+                    }
+                }
+            }
+        } else if self.config.use_hardware_acceleration && !hardware_available {
+            if allow_fallback {
+                eprintln!("AMD hardware acceleration not available, using software encoding");
+            } else {
+                return Err(AppError::hardware_error(
+                    "Hardware acceleration requested but not available, and fallback disabled"
+                ));
+            }
+        }
+        
+        // Software encoding fallback
+        self.encode_with_software(input, output, &progress_callback, total_duration).await
+    }
+    
+    /// Encode using AMD hardware acceleration
+    async fn encode_with_hardware<F>(
+        &self,
+        input: &Path,
+        output: &Path,
+        progress_callback: &F,
+        total_duration: f64,
+    ) -> Result<()>
+    where
+        F: Fn(ProgressUpdate) + Send + Sync + 'static,
+    {
+        let args = self.generate_amd_command_args(input, output);
+        
+        self.execute_ffmpeg_command(args, progress_callback, total_duration, "hardware").await
+            .map_err(|e| AppError::hardware_error(format!("AMD hardware encoding failed: {}", e)))
+    }
+    
+    /// Encode using software (libx265)
+    async fn encode_with_software<F>(
+        &self,
+        input: &Path,
+        output: &Path,
+        progress_callback: &F,
+        total_duration: f64,
+    ) -> Result<()>
+    where
+        F: Fn(ProgressUpdate) + Send + Sync + 'static,
+    {
+        let args = self.generate_software_command_args(input, output);
+        
+        self.execute_ffmpeg_command(args, progress_callback, total_duration, "software").await
+            .map_err(|e| AppError::ffmpeg_error(format!("Software encoding failed: {}", e)))
+    }
+    
+    /// Execute FFmpeg command with comprehensive error handling
+    async fn execute_ffmpeg_command<F>(
+        &self,
+        args: Vec<String>,
+        progress_callback: &F,
+        total_duration: f64,
+        encoding_type: &str,
+    ) -> Result<()>
+    where
+        F: Fn(ProgressUpdate) + Send + Sync + 'static,
+    {
         // Spawn FFmpeg process
         let mut child = Command::new("ffmpeg")
             .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .map_err(|e| AppError::EncodingError(format!("Failed to spawn FFmpeg process: {}", e)))?;
-            
-        // Handle progress updates
-        let progress_callback = Arc::new(progress_callback);
+            .map_err(|e| AppError::ffmpeg_error(format!("Failed to spawn FFmpeg process: {}", e)))?;
         
+        // Handle progress updates and error capture
+        let progress_callback = Arc::new(progress_callback);
+        let mut stderr_output = Vec::new();
+        
+        // Read stdout for progress
         if let Some(stdout) = child.stdout.take() {
             let reader = BufReader::new(stdout);
             let mut lines = reader.lines();
@@ -229,14 +333,35 @@ impl FFmpegEncoder {
             }
         }
         
+        // Read stderr for error information
+        if let Some(stderr) = child.stderr.take() {
+            let mut stderr_reader = BufReader::new(stderr);
+            let mut stderr_line = String::new();
+            while stderr_reader.read_line(&mut stderr_line).await.unwrap_or(0) > 0 {
+                stderr_output.push(stderr_line.clone());
+                stderr_line.clear();
+            }
+        }
+        
         // Wait for process completion
         let status = child.wait().await
-            .map_err(|e| AppError::EncodingError(format!("FFmpeg process failed: {}", e)))?;
-            
+            .map_err(|e| AppError::ffmpeg_error(format!("FFmpeg process failed: {}", e)))?;
+        
         if !status.success() {
-            return Err(AppError::EncodingError(
-                format!("FFmpeg encoding failed with exit code: {:?}", status.code())
-            ));
+            let error_details = if !stderr_output.is_empty() {
+                format!("FFmpeg {} encoding failed with exit code {:?}. Error output: {}",
+                    encoding_type,
+                    status.code(),
+                    stderr_output.join("\n").trim()
+                )
+            } else {
+                format!("FFmpeg {} encoding failed with exit code {:?}",
+                    encoding_type,
+                    status.code()
+                )
+            };
+            
+            return Err(AppError::ffmpeg_error(error_details));
         }
         
         // Final progress update
@@ -254,6 +379,20 @@ impl FFmpegEncoder {
             QualityProfile::Quality => 20,
             QualityProfile::Medium => 23,
             QualityProfile::HighCompression => 28,
+        }
+    }
+    
+    /// Check if AMD AMF hardware acceleration is available (alias for compatibility)
+    pub async fn check_amd_hardware_availability(&self) -> Result<bool> {
+        Ok(self.check_amd_hardware_support().await)
+    }
+    
+    /// Generate encoding command arguments (public interface for tests)
+    pub fn generate_encoding_command(&self, input: &Path, output: &Path, use_hardware: bool) -> Vec<String> {
+        if use_hardware {
+            self.generate_amd_command_args(input, output)
+        } else {
+            self.generate_software_command_args(input, output)
         }
     }
 }

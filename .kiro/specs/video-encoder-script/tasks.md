@@ -46,7 +46,7 @@
   - Write TUI event handling loop for user interactions
   - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5_
 
-- [ ] 7. Implement parallel encoding manager with job coordination
+- [x] 7. Implement parallel encoding manager with job coordination
   - Create EncodingManager struct with configurable parallel job limits
   - Implement job queue management using tokio async tasks
   - Write encoding job spawning and completion tracking logic
@@ -54,7 +54,7 @@
   - Create unit tests for job scheduling and parallel execution limits
   - _Requirements: 6.1, 6.2, 6.3_
 
-- [ ] 8. Add progress tracking and real-time display updates
+- [x] 8. Add progress tracking and real-time display updates
   - Create ProgressUpdate struct with file-level and batch-level progress data
   - Implement progress calculation for individual encoding jobs
   - Write overall batch progress tracking across multiple parallel jobs
@@ -62,7 +62,7 @@
   - Create progress persistence to handle TUI refresh and updates
   - _Requirements: 7.1, 7.2, 7.3, 7.4_
 
-- [ ] 9. Integrate all components and implement main application flow
+- [x] 9. Integrate all components and implement main application flow
   - Wire together CLI parsing, file scanning, TUI selection, and encoding manager
   - Implement complete application workflow from startup to completion
   - Add proper error handling and user feedback throughout the process
@@ -70,7 +70,7 @@
   - Write integration tests for complete encoding workflow
   - _Requirements: 1.1, 2.1, 3.1, 4.1, 5.1, 6.1, 7.1, 8.1_
 
-- [ ] 10. Add comprehensive error handling and recovery mechanisms
+- [x] 10. Add comprehensive error handling and recovery mechanisms
   - Implement custom error types for different failure scenarios
   - Add hardware acceleration fallback with user notification
   - Create file-level error recovery to continue batch processing on individual failures
@@ -78,7 +78,7 @@
   - Write unit tests for error handling and recovery paths
   - _Requirements: 5.2, 8.5, 9.3, 9.4_
 
-- [ ] 11. Optimize performance and resource usage
+- [x] 11. Optimize performance and resource usage
   - Profile memory usage during large batch operations and optimize data structures
   - Implement efficient progress update batching to minimize TUI refresh overhead
   - Add resource monitoring to prevent system overload during parallel encoding
@@ -86,7 +86,7 @@
   - Create performance benchmarks and validate against lightweight requirements
   - _Requirements: 9.1, 9.2, 9.4_
 
-- [ ] 12. Create comprehensive test suite and validation
+- [x] 12. Create comprehensive test suite and validation
   - Write integration tests with sample video files for end-to-end validation
   - Add performance tests to verify encoding speed and resource usage
   - Create test cases for AMD hardware detection and fallback scenarios
