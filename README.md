@@ -60,6 +60,11 @@ ffmpeg -encoders | grep amf
 ./target/release/video-encoder -v -j 4 /path/to/videos
 ```
 
+### Interactive vs Headless Mode
+- **Interactive Mode**: When run in a terminal, displays a TUI for file selection
+- **Headless Mode**: When TUI cannot initialize (SSH, scripts, etc.), automatically selects all eligible files
+- **Verbose Mode**: Use `-v` flag to see detailed progress and mode information
+
 ### Command Line Options
 ```
 Usage: video-encoder [OPTIONS] <TARGET_DIRECTORY>

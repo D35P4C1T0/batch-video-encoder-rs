@@ -69,16 +69,16 @@ impl FFmpegEncoder {
         let mut args = vec![
             "-hide_banner".to_string(),
             "-y".to_string(), // Overwrite output files
-            "-hwaccel".to_string(),
-            "amf".to_string(),
             "-i".to_string(),
             input.to_string_lossy().to_string(),
         ];
         
-        // Video encoding settings
+        // Video encoding settings with AMD AMF H.265
         args.extend([
             "-c:v".to_string(),
-            "hevc_amf".to_string(),
+            "hevc_amf".to_string(), // AMD AMF HEVC encoder
+            "-quality".to_string(),
+            "quality".to_string(), // Use quality mode instead of CQP
             "-rc".to_string(),
             "cqp".to_string(), // Constant Quality Parameter mode
             "-qp_i".to_string(),
@@ -237,8 +237,12 @@ impl FFmpegEncoder {
         
         // First attempt: try hardware acceleration if requested and available
         if self.config.use_hardware_acceleration && hardware_available {
+            println!("Using AMD AMF hardware acceleration for H.265 encoding...");
             match self.encode_with_hardware(input, output, &progress_callback, total_duration).await {
-                Ok(()) => return Ok(()),
+                Ok(()) => {
+                    println!("Hardware encoding completed successfully");
+                    return Ok(());
+                },
                 Err(e) => {
                     if allow_fallback {
                         eprintln!("Hardware encoding failed: {}. Falling back to software encoding.", e);
@@ -261,7 +265,12 @@ impl FFmpegEncoder {
         }
         
         // Software encoding fallback
-        self.encode_with_software(input, output, &progress_callback, total_duration).await
+        println!("Using software encoding (libx265)...");
+        let result = self.encode_with_software(input, output, &progress_callback, total_duration).await;
+        if result.is_ok() {
+            println!("Software encoding completed successfully");
+        }
+        result
     }
     
     /// Encode using AMD hardware acceleration
@@ -349,10 +358,13 @@ impl FFmpegEncoder {
         
         if !status.success() {
             let error_details = if !stderr_output.is_empty() {
+                let stderr_text = stderr_output.join("\n").trim().to_string();
+                eprintln!("FFmpeg {} encoding failed. Error output:", encoding_type);
+                eprintln!("{}", stderr_text);
                 format!("FFmpeg {} encoding failed with exit code {:?}. Error output: {}",
                     encoding_type,
                     status.code(),
-                    stderr_output.join("\n").trim()
+                    stderr_text
                 )
             } else {
                 format!("FFmpeg {} encoding failed with exit code {:?}",

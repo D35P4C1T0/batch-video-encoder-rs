@@ -48,8 +48,30 @@ async fn run() -> Result<()> {
     println!("Found {} files that can be encoded to H.265", encodable_files.len());
     
     // Launch TUI for file selection
-    let mut tui_manager = tui::TuiManager::new(encodable_files)?;
-    let selected_files = tui_manager.run_file_selection()?;
+    if config.verbose {
+        println!("Launching TUI for file selection...");
+    }
+    
+    let selected_files = match tui::TuiManager::new(encodable_files.clone()) {
+        Ok(mut tui_manager) => {
+            if config.verbose {
+                println!("TUI manager created, running file selection...");
+            }
+            tui_manager.run_file_selection()?
+        }
+        Err(e) => {
+            if config.verbose {
+                println!("TUI initialization failed ({}), auto-selecting all files for headless mode", e);
+            } else {
+                println!("Running in headless mode, auto-selecting all {} files", encodable_files.len());
+            }
+            encodable_files.clone()
+        }
+    };
+    
+    if config.verbose {
+        println!("File selection completed, {} files selected", selected_files.len());
+    }
     
     if selected_files.is_empty() {
         println!("No files selected for encoding. Exiting.");

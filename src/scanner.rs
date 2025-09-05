@@ -91,6 +91,8 @@ pub fn scan_directory_with_cache(path: &Path, performance_monitor: Option<&Perfo
                     // Detect codec using ffmpeg
                     video_file.codec = detect_video_codec_sync(&file_path)?;
                     
+
+                    
                     // Get additional metadata
                     if let Ok((resolution, duration, bitrate)) = get_video_metadata(&file_path) {
                         video_file.resolution = resolution;
